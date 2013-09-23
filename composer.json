@@ -1,0 +1,10 @@
+{
+    "name": "mathjax/mathjax-bundle",
+    "type": "symfony-bundle",
+    "description": "Symfony MathjaxBundle",
+    "keywords": ["jQuery", "sonata"],
+    "autoload": {
+        "psr-0": { "Mathjax\\MathjaxBundle": "" }
+    },
+    "target-dir": "Mathjax/MathjaxBundle"
+}
