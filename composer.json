@@ -2,7 +2,7 @@
     "name": "mathjax/mathjax-bundle",
     "type": "symfony-bundle",
     "description": "Symfony MathjaxBundle",
-    "keywords": ["jQuery", "sonata"],
+    "keywords": ["mathjax"],
     "autoload": {
         "psr-0": { "Mathjax\\MathjaxBundle": "" }
     },
