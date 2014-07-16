@@ -1,10 +1,10 @@
 {
     "name": "mathjax/mathjax-bundle",
     "type": "symfony-bundle",
-    "description": "Symfony MathjaxBundle",
+    "description": "Symfony MathJaxBundle",
     "keywords": ["mathjax"],
     "autoload": {
-        "psr-0": { "Mathjax\\MathjaxBundle": "" }
+        "psr-0": { "MathJax\\MathJaxBundle": "" }
     },
-    "target-dir": "Mathjax/MathjaxBundle"
+    "target-dir": "MathJax/MathJaxBundle"
 }
