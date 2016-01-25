@@ -2,7 +2,9 @@
     "name": "mathjax/mathjax-bundle",
     "type": "symfony-bundle",
     "description": "Symfony MathJaxBundle",
-    "keywords": ["mathjax"],
+    "keywords": ["math", "js", "LaTeX", "MathML", "AsciiMath"],
+    "homepage": "http://www.mathjax.org/",
+    "license": "Apache-2.0",
     "autoload": {
         "psr-0": { "MathJax\\MathJaxBundle": "" }
     },

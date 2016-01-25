@@ -326,6 +326,9 @@
         container.onmousedown   = EVENT.Mousedown;
         container.onclick       = EVENT.Click;
         container.ondblclick    = EVENT.DblClick;
+        // Added for keyboard accessible menu.
+        container.onkeydown = EVENT.Keydown;
+        container.tabIndex = "0";
 	if (HUB.Browser.noContextMenu) {
 	  container.ontouchstart = TOUCH.start;
 	  container.ontouchend   = TOUCH.end;
@@ -556,8 +559,8 @@
       //  Create a MathML element
       //
       NativeMMLelement: function (type) {
-        var math = (document.createElementNS ? document.createElementNS(nMML.MMLnamespace,type) :
-                    (HUB.Browser.mpNamespace ? document.createElement("m:"+type) :
+        var math = ( HUB.Browser.mpNamespace ? document.createElement("m:"+type) :
+                   (document.createElementNS ? document.createElementNS(nMML.MMLnamespace,type) :
                                                document.createElement(type)));
         math.isMathJax = true;
         return math;
@@ -1249,7 +1252,7 @@
         // Some browsers do not implement the mmultiscripts element.
         // Try to emulate the support using basic script elements.
         //
-        if (!nMML.mmultiscriptsBug || this.data.length === 0 ) {
+        if (!nMML.mmultiscriptsBug || this.data.length === 0) {
           this.SUPER(arguments).toNativeMML.call(this,parent);
           return;
         }
@@ -1267,7 +1270,7 @@
         //
         if (this.data[0]) {this.data[0].toNativeMML(tag)}
         else {tag.appendChild(this.NativeMMLelement("mrow"))}
-        base = tag.removeChild(tag.lastChild);
+        var base = tag.removeChild(tag.lastChild);
 
         //
         // Process the postscript pairs
@@ -1350,7 +1353,6 @@
       nMML.msieIE8HeightBug = (mode === 8);
     },
     Opera: function (browser) {
-      nMML.operaPositionBug = true;
       nMML.stretchyMoBug = true;
       nMML.tableLabelBug = true;
       nMML.mfencedBug = true;
