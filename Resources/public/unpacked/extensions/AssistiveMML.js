@@ -10,7 +10,7 @@
  *  
  *  ---------------------------------------------------------------------
  *  
- *  Copyright (c) 2015 The MathJax Consortium
+ *  Copyright (c) 2015-2017 The MathJax Consortium
  * 
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -29,9 +29,9 @@
   var SETTINGS = HUB.config.menuSettings;
   
   var AssistiveMML = MathJax.Extension["AssistiveMML"] = {
-    version: "2.6.0",
+    version: "2.7.1",
     
-    config: {
+    config: HUB.CombineConfig("AssistiveMML",{
       disabled: false,
       styles: {
         ".MJX_Assistive_MathML": {
@@ -44,13 +44,22 @@
           height: "1px!important",
           width: "1px!important",
           overflow: "hidden!important",
-          display:"block!important"
+          display:"block!important",
+          //
+          //  Don't allow the assistive MathML become part of the selection
+          //
+          "-webkit-touch-callout": "none",
+          "-webkit-user-select": "none",
+          "-khtml-user-select": "none",
+          "-moz-user-select": "none",
+          "-ms-user-select": "none",
+          "user-select": "none"
         },
         ".MJX_Assistive_MathML.MJX_Assistive_MathML_Block": {
           width: "100%!important"
         }
       }
-    },
+    }),
     
     Config: function () {
       if (!this.config.disabled && SETTINGS.assistiveMML == null)
@@ -106,7 +115,8 @@
       while (state.i < m) {
         jax = state.jax[state.i];
         frame = document.getElementById(jax.inputID+"-Frame");
-        if (jax.outputJax !== "NativeMML" && frame && !frame.getAttribute("data-mathml")) {
+        if (jax.outputJax !== "NativeMML" && jax.outputJax !== "PlainSource" &&
+            frame && !frame.getAttribute("data-mathml")) {
           try {
             mml = jax.root.toMathML("").replace(/\n */g,"").replace(/<!--.*?-->/g,"");
           } catch (err) {
@@ -115,11 +125,11 @@
           }
           frame.setAttribute("data-mathml",mml);
           span = HTML.addElement(frame,"span",{
-            isMathJax: true,
+            isMathJax: true, unselectable: "on",
             className: "MJX_Assistive_MathML"
               + (jax.root.Get("display") === "block" ? " MJX_Assistive_MathML_Block" : "")
           });
-          span.innerHTML = mml;
+          try {span.innerHTML = mml} catch (err) {}
           frame.style.position = "relative";
           frame.setAttribute("role","presentation");
           frame.firstChild.setAttribute("aria-hidden","true");

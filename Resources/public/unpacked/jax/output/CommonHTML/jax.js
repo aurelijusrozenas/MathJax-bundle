@@ -12,7 +12,7 @@
  *  
  *  ---------------------------------------------------------------------
  *  
- *  Copyright (c) 2013-2015 The MathJax Consortium
+ *  Copyright (c) 2013-2017 The MathJax Consortium
  * 
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@
 
 (function (AJAX,HUB,HTML,CHTML) {
   var MML;
+  var isArray = MathJax.Object.isArray;
 
   var EVENT, TOUCH, HOVER; // filled in later
 
@@ -71,17 +72,29 @@
     ".mjx-chtml[tabindex]:focus, body :focus .mjx-chtml[tabindex]": {
       display: "inline-table"  // see issues #1282 and #1338
     },
+    ".mjx-full-width": {
+      "text-align": "center",
+      display: "table-cell!important",
+      width:   "10000em"
+    },
 
     ".mjx-math":   {
       "display":         "inline-block",
       "border-collapse": "separate",
       "border-spacing":  0,
     },
-    ".mjx-math *": {display:"inline-block", "text-align":"left"},
+    ".mjx-math *": {
+      display:"inline-block",
+      "-webkit-box-sizing": "content-box!important",
+      "-moz-box-sizing": "content-box!important",
+      "box-sizing": "content-box!important",          // override bootstrap settings
+      "text-align":"left"
+    },
 
     ".mjx-numerator":   {display:"block", "text-align":"center"},
     ".mjx-denominator": {display:"block", "text-align":"center"},
-    ".MJXc-fpad": {"padding-left":".1em", "padding-right":".1em"},
+    ".MJXc-stacked":    {height:0, position:"relative"},
+    ".MJXc-stacked > *":  {position: "absolute"},
     ".MJXc-bevelled > *": {display:"inline-block"},
     
     ".mjx-stack":  {display:"inline-block"},
@@ -118,18 +131,19 @@
     ".mjx-mtr":    {display:"table-row"},
     ".mjx-mlabeledtr": {display:"table-row"},
     ".mjx-mtd":    {display:"table-cell", "text-align":"center"},
-    ".mjx-label":  {display:"block"},
+    ".mjx-label":  {display:"table-row"},
 
     ".mjx-box":    {display:"inline-block"},
     ".mjx-block":  {display:"block"},
-    ".mjx-span":   {display:"span"},
+    ".mjx-span":   {display:"inline"},
     ".mjx-char":   {display:"block", "white-space":"pre"},
-    ".mjx-itable": {display:"inline-table"},
+    ".mjx-itable": {display:"inline-table", width:"auto"},
     ".mjx-row":    {display:"table-row"},
     ".mjx-cell":   {display:"table-cell"},
     ".mjx-table":  {display:"table", width:"100%"},
-    ".mjx-line":   {display:"block", width:"100%", "border-top":"0 solid"},
+    ".mjx-line":   {display:"block", height:0},
     ".mjx-strut":  {width:0, "padding-top":STRUTHEIGHT+"em"},
+    ".mjx-vsize":  {width:0},
 
     ".MJXc-space1": {"margin-left":".167em"},
     ".MJXc-space2": {"margin-left":".222em"},
@@ -167,6 +181,13 @@
     ".mjx-ex-box-test": {
       position:  "absolute",
       width:"1px", height:"60ex"
+    },
+    ".mjx-line-box-test": {display: "table!important"},
+    ".mjx-line-box-test span": {
+      display: "table-cell!important",
+      width: "10000em!important",
+      "min-width":0, "max-width":"none",
+      padding:0, border:0, margin:0
     },
     
     "#MathJax_CHTML_Tooltip": {
@@ -231,6 +252,11 @@
       this.TestSpan = CHTML.Element("mjx-test",{style:{left:"1em"}},[["mjx-ex-box-test"]]);
 
       //
+      // Used in preTranslate to get linebreak width
+      //
+      this.linebreakSpan = HTML.Element("span",{className:"mjx-line-box-test"},[["span"]]);
+
+      //
       //  Set up styles and preload web fonts
       //
       return AJAX.Styles(this.config.styles,["InitializeCHTML",this]);
@@ -258,9 +284,11 @@
       //  Get the default sizes (need styles in place to do this)
       //
       document.body.appendChild(this.TestSpan);
+      document.body.appendChild(this.linebreakSpan);
       this.defaultEm    = this.getFontSize(this.TestSpan);
       this.defaultEx    = this.TestSpan.firstChild.offsetHeight/60;
-      this.defaultWidth = this.TestSpan.offsetWidth;
+      this.defaultWidth = this.linebreakSpan.firstChild.offsetWidth;
+      document.body.removeChild(this.linebreakSpan);
       document.body.removeChild(this.TestSpan);
     },
     getFontSize: (window.getComputedStyle ? 
@@ -335,27 +363,33 @@
     setScript: HTML.setScript,
     
     //
-    //  This replaces node.getElementsByTagName(type)[0]
-    //  and should be replaced by that if we go back to using
-    //  custom tags
+    //  Look through the direct children of a node for one with the given
+    //  type (but if the node has intervening containers for its children,
+    //  step into them; note that elements corresponding to MathML nodes
+    //  will have id's so we don't step into them).
+    //  
+    //  This is used by munderover and msubsup to locate their child elements
+    //  when they are part of an embellished operator that is being stretched.
+    //  We don't use querySelector because we want to find only the direct child
+    //  nodes, not nodes that might be nested deeper in the tree (see issue #1447).
     //
-    getNode: (document.getElementsByClassName ? 
-      function (node,type) {return node.getElementsByClassName(type)[0]} :
-      function (node,type) {
-        var nodes = node.getElementsByTagName("span");
-        var name = RegExp("\\b"+type+"\\b");
-        for (var i = 0, m = nodes.length; i < m; i++) {
-          if (name.test(nodes[i].className)) return nodes[i];
+    getNode: function (node,type) {
+      var name = RegExp("\\b"+type+"\\b");
+      while (node) {
+        for (var i = 0, m = node.childNodes.length; i < m; i++) {
+          var child = node.childNodes[i];
+          if (name.test(child.className)) return child;
         }
+        node = (node.firstChild && (node.firstChild.id||"") === "" ? node.firstChild : null);
       }
-    ),
-    
+      return null;
+    },
 
     /********************************************/
     
     preTranslate: function (state) {
       var scripts = state.jax[this.id], i, m = scripts.length,
-          script, prev, node, jax, ex, em;
+          script, prev, node, test, span, jax, ex, em;
       //
       //  Get linebreaking information
       //
@@ -378,18 +412,22 @@
         prev = script.previousSibling;
 	if (prev && prev.className && String(prev.className).substr(0,9) === "mjx-chtml")
 	  prev.parentNode.removeChild(prev);
+        if (script.MathJax.preview) script.MathJax.preview.style.display = "none";
         //
         //  Add the node for the math and mark it as being processed
         //
         jax = script.MathJax.elementJax; if (!jax) continue;
-        jax.CHTML = {display: (jax.root.Get("display") === "block")}
+        jax.CHTML = {
+          display: (jax.root.Get("display") === "block"),
+          preview: (jax.CHTML||{}).preview     // in case typeset calls are interleaved
+        };
         node = CHTML.Element("mjx-chtml",{
           id:jax.inputID+"-Frame", className:"MathJax_CHTML", isMathJax:true, jaxID:this.id,
           oncontextmenu:EVENT.Menu, onmousedown: EVENT.Mousedown,
           onmouseover:EVENT.Mouseover, onmouseout:EVENT.Mouseout, onmousemove:EVENT.Mousemove,
 	  onclick:EVENT.Click, ondblclick:EVENT.DblClick,
           // Added for keyboard accessible menu.
-          onkeydown: EVENT.Keydown, tabIndex: "0"  
+          onkeydown: EVENT.Keydown, tabIndex: HUB.getTabOrder(jax)
         });
         if (jax.CHTML.display) {
           //
@@ -408,6 +446,7 @@
         //
         //  Add test nodes for determineing scales and linebreak widths
         //
+        script.parentNode.insertBefore(this.linebreakSpan.cloneNode(true),script);
         script.parentNode.insertBefore(this.TestSpan.cloneNode(true),script);
       }
       //
@@ -420,12 +459,10 @@
         jax = script.MathJax.elementJax; if (!jax) continue;
         em = CHTML.getFontSize(test);
         ex = test.firstChild.offsetHeight/60;
-        if (ex === 0 || ex === "NaN") ex = this.defaultEx
-        node = test;
-        while (node) {
-          cwidth = node.offsetWidth; if (cwidth) break;
-          cwidth = CHTML.getMaxWidth(node); if (cwidth) break;
-          node = node.parentNode;
+        cwidth = Math.max(0,test.previousSibling.firstChild.offsetWidth-2);
+        if (ex === 0 || ex === "NaN") {
+          ex = this.defaultEx;
+          cwidth = this.defaultWidth;
         }
         if (relwidth) maxwidth = cwidth;
         scale = (this.config.matchFontHeight ? ex/this.TEX.x_height/em : 1);
@@ -440,9 +477,12 @@
       //
       for (i = 0; i < m; i++) {
         script = scripts[i]; if (!script.parentNode) continue;
-        test = scripts[i].previousSibling;
-        jax = scripts[i].MathJax.elementJax; if (!jax) continue;
+        test = script.previousSibling;
+        span = test.previousSibling;
+        jax = script.MathJax.elementJax; if (!jax) continue;
+        span.parentNode.removeChild(span);
         test.parentNode.removeChild(test);
+        if (script.MathJax.preview) script.MathJax.preview.style.display = "";
       }
       state.CHTMLeqn = state.CHTMLlast = 0; state.CHTMLi = -1;
       state.CHTMLchunk = this.config.EqnChunk;
@@ -467,6 +507,7 @@
       //
       var jax = script.MathJax.elementJax, math = jax.root,
           node = document.getElementById(jax.inputID+"-Frame");
+      if (!node) return;
       this.getMetrics(jax);
       if (this.scale !== 1) node.style.fontSize = jax.CHTML.fontSize;
       //
@@ -564,6 +605,7 @@
           //
           if (data.preview) {
             data.preview.innerHTML = "";
+            data.preview.style.display = "none";
             script.MathJax.preview = data.preview;
             delete data.preview;
           }
@@ -730,6 +772,10 @@
     getCharList: function (variant,n) {
       var id, M, list = [], cache = variant.cache, nn = n;
       if (cache[n]) return cache[n];
+      if (n > 0xFFFF && this.FONTDATA.RemapPlane1) {
+        var nv = this.FONTDATA.RemapPlane1(n,variant);
+        n = nv.n; variant = nv.variant;
+      }
       var RANGES = this.FONTDATA.RANGES, VARIANT = this.FONTDATA.VARIANT;
       if (n >= RANGES[0].low && n <= RANGES[RANGES.length-1].high) {
         for (id = 0, M = RANGES.length; id < M; id++) {
@@ -754,7 +800,7 @@
       } else if (this.FONTDATA.REMAP[n] && !variant.noRemap) {
         n = this.FONTDATA.REMAP[n];
       }
-      if (n instanceof Array) {variant = VARIANT[n[1]]; n = n[0]} 
+      if (isArray(n)) {variant = VARIANT[n[1]]; n = n[0]} 
       if (typeof(n) === "string") {
         var string = {text:n, i:0, length:n.length};
         while (string.i < string.length) {
@@ -858,10 +904,17 @@
       var test2 = CHTML.addElement(CHTML.CHTMLnode,"mjx-chartest",{className:name},[["mjx-char",{style:styles},[c,["mjx-box"]]]]);
       test1.firstChild.style.fontSize = test2.firstChild.style.fontSize = "";
       var em = 5*CHTML.em;
-      var d = (test2.offsetHeight-1000)/em;
-      var w = test1.offsetWidth/em, h = test1.offsetHeight/em - d;
+      var H1 = test1.offsetHeight, H2 = test2.offsetHeight, W = test1.offsetWidth;
       CHTML.CHTMLnode.removeChild(test1);
       CHTML.CHTMLnode.removeChild(test2);
+      if (H2 === 0) {
+        em = 5*CHTML.defaultEm;
+        var test = document.body.appendChild(document.createElement("div"));
+        test.appendChild(test1); test.appendChild(test2);
+        H1 = test1.offsetHeight, H2 = test2.offsetHeight, W = test1.offsetWidth;
+        document.body.removeChild(test);
+      }
+      var d = (H2-1000)/em, w = W/em, h = H1/em - d;
       return {h:h, d:d, w:w}
     },
     
@@ -1282,6 +1335,7 @@
     updateFrom: function (cbox) {
       this.h = cbox.h; this.d = cbox.d; this.w = cbox.w; this.r = cbox.r; this.l = cbox.l;
       this.t = cbox.t; this.b = cbox.b;
+      if (cbox.pwidth) this.pwidth = cbox.pwidth;
       if (cbox.D) this.D = cbox.D; else delete this.D;
     },
     adjust: function (m,x,X,M) {
@@ -1299,7 +1353,8 @@
     empty: function (bbox) {
       if (!bbox) bbox = CHTML.BBOX.zero();
       bbox.h = bbox.d = bbox.r = bbox.t = bbox.b = -BIGDIMEN;
-      bbox.w = 0;  bbox.l = BIGDIMEN;
+      bbox.w = 0; bbox.l = BIGDIMEN;
+      delete bbox.pwidth;
       return bbox;
     },
     //
@@ -1334,8 +1389,8 @@
         if (!options) options = {};
         node = this.CHTMLcreateNode(node); this.CHTML = CHTML.BBOX.empty();
         this.CHTMLhandleStyle(node);
-        this.CHTMLhandleScale(node);
         if (this.isToken) this.CHTMLgetVariant();
+        this.CHTMLhandleScale(node);
         var m = Math.max((options.minChildren||0),this.data.length);
         for (var i = 0; i < m; i++) this.CHTMLaddChild(node,i,options);
         if (!options.noBBox) this.CHTML.clean();
@@ -1346,12 +1401,10 @@
       },
       CHTMLaddChild: function (node,i,options) {
         var child = this.data[i], cnode;
+        var type = options.childNodes;
+        if (type instanceof Array) type = type[i]||"span";
         if (child) {
-          var type = options.childNodes;
-          if (type) {
-            if (type instanceof Array) type = type[i]||"span";
-            node = CHTML.addElement(node,type);
-          }
+          if (type) node = CHTML.addElement(node,type);
           cnode = child.toCommonHTML(node,options.childOptions);
           if (type && child.CHTML.rscale !== 1) {
             // move scale factor to outer container (which seems to be more accurate)
@@ -1365,7 +1418,9 @@
             if (cbox.skew) bbox.skew = cbox.skew;
             if (cbox.pwidth) bbox.pwidth = cbox.pwidth;
           }
-        } else if (options.forceChild) {cnode = CHTML.addElement(node,"mjx-box")}
+        } else if (options.forceChild) {
+          cnode = CHTML.addElement(node,(type||"mjx-box"));
+        }
         return cnode;
       },
       
@@ -1375,6 +1430,7 @@
         return node;
       },
       CHTMLcoreNode: function (node) {
+        if (this.inferRow && this.data[0]) return this.data[0].CHTMLcoreNode(node.firstChild);
         return this.CHTMLchildNode(node,this.CoreIndex());
       },
       
@@ -1490,6 +1546,9 @@
           values.fontsize = this.removedStyles.fontSize;
         if (values.fontsize && !this.mathsize) values.mathsize = values.fontsize;
         if (values.mathsize !== 1) scale *= CHTML.length2em(values.mathsize,1,1);
+        var variant = this.CHTMLvariant;
+        if (variant && variant.style && variant.style["font-family"])
+          scale *= (CHTML.config.scale/100)/CHTML.scale;
         this.CHTML.scale = scale; pscale = this.CHTML.rscale = scale/pscale;
         if (Math.abs(pscale-1) < .001) pscale = 1;
         if (node && pscale !== 1) node.style.fontSize = CHTML.Percent(pscale);
@@ -1619,7 +1678,7 @@
       CHTMLdrawBBox: function (node,bbox) {
         if (!bbox) bbox = this.CHTML;
         var box = CHTML.Element("mjx-box",
-          {style:{"font-size":node.style.fontSize, opacity:.25,"margin-left":CHTML.Em(-(bbox.w+(bbox.R||0)))}},[
+          {style:{opacity:.25,"margin-left":CHTML.Em(-(bbox.w+(bbox.R||0)))}},[
           ["mjx-box",{style:{
             height:CHTML.Em(bbox.h),width:CHTML.Em(bbox.w),
             "background-color":"red"
@@ -1657,12 +1716,12 @@
       //
       CHTMLstretchV: function (h,d) {
         this.Core().CHTMLstretchV(h,d);
-        this.toCommonHTML(this.CHTMLnodeElement(),true);
+        this.toCommonHTML(this.CHTMLnodeElement(),{stretch:true});
         return this.CHTML;
       },
       CHTMLstretchH: function (node,w) {
         this.CHTMLstretchCoreH(node,w);
-        this.toCommonHTML(node,true);
+        this.toCommonHTML(node,{stretch:true});
         return this.CHTML;
       }      
     });
@@ -1697,10 +1756,10 @@
         }
         var alttext = this.Get("alttext");
         if (alttext && !node.getAttribute("aria-label")) node.setAttribute("aria-label",alttext);
-        if (!node.getAttribute("role")) node.setAttribute("role","math");
         if (this.CHTML.pwidth) {
-          node.parentNode.style.width = this.CHTML.pwidth;
           node.parentNode.style.minWidth = this.CHTML.mwidth||CHTML.Em(this.CHTML.w);
+          node.parentNode.className = "mjx-full-width "+node.parentNode.className;
+          node.style.width = this.CHTML.pwidth;
         } else if (!this.isMultiline && this.Get("display") === "block") {
           var values = this.getValues("indentalignfirst","indentshiftfirst","indentalign","indentshift");
           if (values.indentalignfirst !== MML.INDENTALIGN.INDENTALIGN) values.indentalign = values.indentalignfirst;
@@ -1713,7 +1772,7 @@
             shift += (values.indentalign === MML.INDENTALIGN.RIGHT ? -indent : indent);
           }
           var styles = node.parentNode.parentNode.style;
-          styles.textAlign = values.indentalign;
+          node.parentNode.style.textAlign = styles.textAlign = values.indentalign;
           // ### FIXME: make percentage widths respond to changes in container
           if (shift) {
             shift *= CHTML.em/CHTML.outerEm;
@@ -1746,8 +1805,9 @@
     /********************************************************/
     
     MML.mn.Augment({
+      CHTMLremapMinus: function (text) {return text.replace(/^-/,"\u2212")},
       toCommonHTML: function (node) {
-        node = this.CHTMLdefaultNode(node);
+        node = this.CHTMLdefaultNode(node,{childOptions:{remap:this.CHTMLremapMinus}});
         var bbox = this.CHTML, text = this.data.join("");
         if (bbox.skew != null && text.length !== 1) delete bbox.skew;
         if (bbox.r > bbox.w && text.length === 1 && !this.CHTMLvariant.noIC) {
@@ -1764,8 +1824,8 @@
       toCommonHTML: function (node) {
         node = this.CHTMLcreateNode(node);
         this.CHTMLhandleStyle(node);
-        this.CHTMLhandleScale(node);
         this.CHTMLgetVariant();
+        this.CHTMLhandleScale(node);
         CHTML.BBOX.empty(this.CHTML);
         
         var values = this.getValues("displaystyle","largeop");
@@ -1843,7 +1903,7 @@
         //  something, so put them over a space and remove the space's width
         //
         node = node.firstChild;
-        var space = CHTML.Element("mjx-span",{style:{width:".25em","margin-left":"-.25em"}});
+        var space = CHTML.Element("mjx-box",{style:{width:".25em","margin-left":"-.25em"}});
         node.insertBefore(space,node.firstChild);
       },
       CHTMLcenterOp: function (node) {
@@ -1995,9 +2055,9 @@
     /********************************************************/
     
     MML.mpadded.Augment({
-      toCommonHTML: function (node,stretch) {
+      toCommonHTML: function (node,options) {
         var child;
-        if (stretch) {
+        if (options && options.stretch) {
           node = node.firstChild; child = node.firstChild;
         } else {
           node = this.CHTMLdefaultNode(node,{childNodes:"mjx-box", forceChild:true});
@@ -2052,20 +2112,22 @@
     /********************************************************/
     
     MML.munderover.Augment({
-      toCommonHTML: function (node,stretch) {
+      toCommonHTML: function (node,options) {
         var values = this.getValues("displaystyle","accent","accentunder","align");
-        if (!values.displaystyle && this.data[this.base] != null &&
-            this.data[this.base].CoreMO().Get("movablelimits"))
+        var base = this.data[this.base];
+        if (!values.displaystyle && base != null &&
+            (base.movablelimits || base.CoreMO().Get("movablelimits")))
                 return MML.msubsup.prototype.toCommonHTML.call(this,node,stretch);
         //
         //  Get the nodes for base and limits
         //
-        var base, under, over, nodes = [];
-        if (stretch) {
-          base = CHTML.getNode(node,"mjx-op");
-          under = CHTML.getNode(node,"mjx-under");
-          over = CHTML.getNode(node,"mjx-over");
+        var under, over, nodes = [], stretch = false;
+        if (options && options.stretch) {
+          if (this.data[this.base])  base = CHTML.getNode(node,"mjx-op");
+          if (this.data[this.under]) under = CHTML.getNode(node,"mjx-under");
+          if (this.data[this.over])  over = CHTML.getNode(node,"mjx-over");
           nodes[0] = base; nodes[1] = under||over; nodes[2] = over;
+          stretch = true;
         } else {
           var types = ["mjx-op","mjx-under","mjx-over"];
           if (this.over === 1) types[1] = types[2];
@@ -2111,6 +2173,7 @@
           bbox[i] = this.CHTMLbboxFor(i); bbox[i].x = bbox[i].y = 0;
           if (this.data[i]) bbox[i].stretch = this.data[i].CHTMLcanStretch("Horizontal");
           scale = (i === this.base ? 1 : bbox[i].rscale);
+          if (i !== this.base) {delete bbox[i].L; delete bbox[i].R} // these are overriden by CSS
           W = Math.max(W,scale*(bbox[i].w + (bbox[i].L||0) + (bbox[i].R||0)));
           if (!bbox[i].stretch && W > w) w = W;
         }
@@ -2247,13 +2310,18 @@
         this.CHTML = BBOX;
       },
       CHTMLstretchV: MML.mbase.CHTMLstretchV,
-      CHTMLstretchH: MML.mbase.CHTMLstretchH
+      CHTMLstretchH: MML.mbase.CHTMLstretchH,
+      CHTMLchildNode: function (node,i) {
+        var types = ["mjx-op","mjx-under","mjx-over"];
+        if (this.over === 1) types[1] = types[2];
+        return CHTML.getNode(node,types[i]);
+      }
     });
 
     /********************************************************/
     
     MML.msubsup.Augment({
-      toCommonHTML: function (node,stretch) {
+      toCommonHTML: function (node,options) {
         var values = this.getValues(
            "displaystyle","subscriptshift","superscriptshift","texprimestyle"
         );
@@ -2261,10 +2329,10 @@
         //  Get the nodes for base and limits
         //
         var base, sub, sup;
-        if (stretch) {
-          base = CHTML.getNode(node,"mjx-base");
-          sub = CHTML.getNode(node,"mjx-sub");
-          sup = CHTML.getNode(node,"mjx-sup");
+        if (options && options.stretch) {
+          if (this.data[this.base]) base = CHTML.getNode(node,"mjx-base");
+          if (this.data[this.sub])  sub = CHTML.getNode(node,"mjx-sub");
+          if (this.data[this.sup])  sup = CHTML.getNode(node,"mjx-sup");
           stack = CHTML.getNode(node,"mjx-stack");
         } else {
           var types = ["mjx-base","mjx-sub","mjx-sup"];
@@ -2353,7 +2421,12 @@
         return node;
       },
       CHTMLstretchV: MML.mbase.CHTMLstretchV,
-      CHTMLstretchH: MML.mbase.CHTMLstretchH
+      CHTMLstretchH: MML.mbase.CHTMLstretchH,
+      CHTMLchildNode: function (node,i) {
+        var types = ["mjx-base","mjx-sub","mjx-sup"];
+        if (this.over === 1) types[1] = types[2];
+        return CHTML.getNode(node,types[i]);
+      }
     });
 
     /********************************************************/
@@ -2362,6 +2435,7 @@
       toCommonHTML: function (node) {
         node = this.CHTMLdefaultNode(node,{
           childNodes:["mjx-numerator","mjx-denominator"],
+          childOptions: {autowidth: true},
           forceChild:true, noBBox:true, minChildren:2
         });
         var values = this.getValues("linethickness","displaystyle",
@@ -2400,22 +2474,22 @@
           BBOX.combine(dbox,nscale*nbox.w+bbox.w-delta,v);
           BBOX.clean();
         } else {
+          frac.className += " MJXc-stacked";
           if (isDisplay) {u = CHTML.TEX.num1; v = CHTML.TEX.denom1}
             else {u = (t === 0 ? CHTML.TEX.num3 : CHTML.TEX.num2); v = CHTML.TEX.denom2}
           if (t === 0) { // \atop
             p = Math.max((isDisplay ? 7 : 3) * CHTML.TEX.rule_thickness, 2*mt); // force to at least 2 px
             q = (u - nbox.d*nscale) - (dbox.h*dscale - v);
             if (q < p) {u += (p - q)/2; v += (p - q)/2}
-            frac.style.verticalAlign = CHTML.Em(-v);
           } else { // \over
             p = Math.max((isDisplay ? 2 : 0) * mt + t, t/2 + 1.5*mt);
             t = Math.max(t,mt);
             q = (u - nbox.d*nscale) - (a + t/2); if (q < p) u += (p - q);
             q = (a - t/2) - (dbox.h*dscale - v); if (q < p) v += (p - q);
-            frac.style.verticalAlign = CHTML.Em(t/2-v);
-            num.style.borderBottom = CHTML.Px(t/nscale*nbox.scale,1)+" solid";
-            num.className += " MJXc-fpad";   nbox.L = nbox.R = .1;
-            denom.className += " MJXc-fpad"; dbox.L = dbox.R = .1;
+            nbox.L = nbox.R = dbox.L = dbox.R = .1;  // account for padding in BBOX width
+            var rule = CHTML.addElement(frac,"mjx-line",{style: {
+              "border-bottom":CHTML.Px(t*BBOX.scale,1)+" solid", top: CHTML.Em(-t/2-a)
+            }});
           }
           //
           //  Determine the new bounding box and place the parts
@@ -2423,9 +2497,24 @@
           BBOX.combine(nbox,0,u);
           BBOX.combine(dbox,0,-v);
           BBOX.clean();
-          u -= nscale*nbox.d + a + t/2; v -= dscale*dbox.h - a + t/2;
-          if (u) num.style[u > 0 ? "paddingBottom" : "marginBottom"] = CHTML.Em(u/nscale);
-          if (v) denom.style[v > 0 ? "paddingTop" : "marginTop"] = CHTML.Em(v/dscale);
+          //
+          //  Force elements to the correct width
+          //
+          frac.style.width = CHTML.Em(BBOX.w);
+          num.style.width = CHTML.Em(BBOX.w/nscale);
+          denom.style.width = CHTML.Em(BBOX.w/dscale);
+          if (rule) rule.style.width = frac.style.width;
+          //
+          //  Place the numerator and denominator in relation to the baseline
+          //
+          num.style.top = CHTML.Em(-BBOX.h/nscale);
+          denom.style.bottom = CHTML.Em(-BBOX.d/dscale);
+          //
+          //  Force the size of the surrounding box, since everything is absolutely positioned
+          //
+          CHTML.addElement(node,"mjx-vsize",{style: {
+            height: CHTML.Em(BBOX.h+BBOX.d), verticalAlign: CHTML.Em(-BBOX.d)
+          }});
         }
         //
         //  Add nulldelimiterspace around the fraction
@@ -2534,7 +2623,8 @@
     /********************************************************/
     
     MML.mrow.Augment({
-      toCommonHTML: function (node) {
+      toCommonHTML: function (node,options) {
+        options = options || {};
         node = this.CHTMLdefaultNode(node);
         var bbox = this.CHTML, H = bbox.h, D = bbox.d, hasNegative;
         for (var i = 0, m = this.data.length; i < m; i++) {
@@ -2543,6 +2633,7 @@
         }
         if (this.CHTMLlineBreaks()) {
           this.CHTMLmultiline(node);
+          if (options.autowidth) node.style.width = "";
         } else {
           if (hasNegative && bbox.w) node.style.width = CHTML.Em(Math.max(0,bbox.w));
           if (bbox.w < 0) node.style.marginRight = CHTML.Em(bbox.w);
@@ -2576,8 +2667,8 @@
     /********************************************************/
     
     MML.TeXAtom.Augment({
-      toCommonHTML: function (node,stretch) {
-        if (!stretch) node = this.CHTMLdefaultNode(node);
+      toCommonHTML: function (node,options) {
+        if (!options || !options.stretch) node = this.CHTMLdefaultNode(node);
         if (this.texClass === MML.TEXCLASS.VCENTER) {
           var a = CHTML.TEX.axis_height, BBOX = this.CHTML;
           var v = a-(BBOX.h+BBOX.d)/2+BBOX.d;
@@ -2590,12 +2681,12 @@
       },
       CHTMLstretchV: function (h,d) {
         this.CHTML.updateFrom(this.Core().CHTMLstretchV(h,d));
-        this.toCommonHTML(this.CHTMLnodeElement(),true);
+        this.toCommonHTML(this.CHTMLnodeElement(),{stretch:true});
         return this.CHTML;
       },
       CHTMLstretchH: function (node,w) {
         this.CHTML.updateFrom(this.CHTMLstretchCoreH(node,w));
-        this.toCommonHTML(node,true);
+        this.toCommonHTML(node,{stretch:true});
         return this.CHTML;
       }
     });
@@ -2608,6 +2699,7 @@
 	if (this.data[0]) {
 	  this.data[0].toCommonHTML(node);
 	  this.CHTML.updateFrom(this.data[0].CHTML);
+          this.CHTMLhandleBBox(node);
 	}
         return node;
       }

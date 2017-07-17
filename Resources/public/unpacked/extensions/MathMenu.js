@@ -11,7 +11,7 @@
  *
  *  ---------------------------------------------------------------------
  *
- *  Copyright (c) 2010-2015 The MathJax Consortium
+ *  Copyright (c) 2010-2017 The MathJax Consortium
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@
  */
 
 (function (HUB,HTML,AJAX,CALLBACK,OUTPUT) {
-  var VERSION = "2.6.0";
+  var VERSION = "2.7.1";
 
   var SIGNAL = MathJax.Callback.Signal("menu");  // signal for menu events
 
@@ -42,6 +42,8 @@
       [["MathMenu",id]].concat([].slice.call(arguments,1))
     );
   };
+  
+  var isArray = MathJax.Object.isArray;
 
   var isPC = HUB.Browser.isPC, isMSIE = HUB.Browser.isMSIE, isIE9 = ((document.documentMode||0) > 8);
   var ROUND = (isPC ? null : "5px");
@@ -313,6 +315,9 @@
       this.posted = true;
       if (menu.offsetWidth) menu.style.width = (menu.offsetWidth+2) + "px";
       var x = event.pageX, y = event.pageY;
+      var bbox = document.body.getBoundingClientRect();
+      var styles = (window.getComputedStyle ? window.getComputedStyle(document.body) : {marginLeft: "0px"});
+      var bodyRight = bbox.right - Math.min(0,bbox.left) + parseFloat(styles.marginLeft);
       if (!x && !y && "clientX" in event) {
         x = event.clientX + document.body.scrollLeft + document.documentElement.scrollLeft;
         y = event.clientY + document.body.scrollTop  + document.documentElement.scrollTop;
@@ -326,8 +331,8 @@
           x = (rect.right + rect.left) / 2 + offsetX;
           y = (rect.bottom + rect.top) / 2 + offsetY;
         }
-        if (x + menu.offsetWidth > document.body.offsetWidth - this.margin)
-           {x = document.body.offsetWidth - menu.offsetWidth - this.margin}
+        if (x + menu.offsetWidth > bodyRight - this.margin)
+          {x = bodyRight - menu.offsetWidth - this.margin}
         if (MENU.isMobile) {x = Math.max(5,x-Math.floor(menu.offsetWidth/2)); y -= 20}
         MENU.skipUp = event.isContextMenu;
       } else {
@@ -339,7 +344,7 @@
         }
         if (!MENU.isMobile) {
           if ((MENU.isRTL && x - mw - menu.offsetWidth > this.margin) ||
-              (!MENU.isRTL && x + menu.offsetWidth > document.body.offsetWidth - this.margin))
+              (!MENU.isRTL && x + menu.offsetWidth > bodyRight - this.margin))
             {side = "right"; x = Math.max(this.margin,x - mw - menu.offsetWidth + 6)}
         }
         if (!isPC) {
@@ -544,18 +549,12 @@
       MENU.FocusNode(menu);
     },
     Activate: function(event, menu) {
-      var jaxs = MENU.AllNodes();
-      for (var j = 0, jax; jax = jaxs[j]; j++) {
-        jax.tabIndex = -1;
-      }
+      MENU.UnsetTabIndex();
       MENU.posted = true;
     },
     Unfocus: function() {
       MENU.ActiveNode().tabIndex = -1;
-      var jaxs = MENU.AllNodes();
-      for (var j = 0, jax; jax = jaxs[j]; j++) {
-        jax.tabIndex = 0;
-      }
+      MENU.SetTabIndex();
       MENU.FocusNode(MENU.CurrentNode());
       MENU.posted = false;
     },
@@ -576,6 +575,26 @@
     },
     Left: function(event, menu) {
       MENU.MoveHorizontal(event, menu, function(x) {return x - 1;});
+    },
+    UnsetTabIndex: function () {
+      var jaxs = MENU.AllNodes();
+      for (var j = 0, jax; jax = jaxs[j]; j++) {
+        if (jax.tabIndex > 0) {
+          jax.oldTabIndex = jax.tabIndex;
+        }
+        jax.tabIndex = -1;
+      }
+    },
+    SetTabIndex: function () {
+      var jaxs = MENU.AllNodes();
+      for (var j = 0, jax; jax = jaxs[j]; j++) {
+        if (jax.oldTabIndex !== undefined) {
+          jax.tabIndex = jax.oldTabIndex
+          delete jax.oldTabIndex;
+        } else {
+          jax.tabIndex = HUB.getTabOrder(jax);
+        }
+      }
     },
 
     //TODO: Move to utility class.
@@ -789,7 +808,7 @@
     action: function () {},
 
     Init: function (name,action,def) {
-      if (!(name instanceof Array)) {name = [name,name]}  // make [id,label] pair
+      if (!isArray(name)) {name = [name,name]}  // make [id,label] pair
       this.name = name; this.action = action;
       this.With(def);
     },
@@ -820,7 +839,7 @@
       return def;
     },
     Init: function (name,def) {
-      if (!(name instanceof Array)) {name = [name,name]}  // make [id,label] pair
+      if (!isArray(name)) {name = [name,name]}  // make [id,label] pair
       this.name = name; var i = 1;
       if (!(def instanceof MENU.ITEM)) {this.With(def), i++}
       this.submenu = MENU.apply(MENU,[].slice.call(arguments,i));
@@ -919,7 +938,7 @@
       return def;
     },
     Init: function (name,variable,def) {
-      if (!(name instanceof Array)) {name = [name,name]}  // make [id,label] pair
+      if (!isArray(name)) {name = [name,name]}  // make [id,label] pair
       this.name = name; this.variable = variable; this.With(def);
       if (this.value == null) {this.value = this.name[0]}
     },
@@ -966,7 +985,7 @@
       return def;
     },
     Init: function (name,variable,def) {
-      if (!(name instanceof Array)) {name = [name,name]}  // make [id,label] pair
+      if (!isArray(name)) {name = [name,name]}  // make [id,label] pair
       this.name = name; this.variable = variable; this.With(def);
     },
     Label: function (def,menu) {
@@ -995,7 +1014,7 @@
     role: "menuitem",  // Aria role.
 
     Init: function (name,def) {
-      if (!(name instanceof Array)) {name = [name,name]}  // make [id,label] pair
+      if (!isArray(name)) {name = [name,name]}  // make [id,label] pair
       this.name = name; this.With(def);
     },
     Label: function (def,menu) {
@@ -1328,6 +1347,9 @@
     }
   };
   
+  /*
+   *  Toggle assistive MML settings
+   */
   MENU.AssistiveMML = function (item,restart) {
     var AMML = MathJax.Extension.AssistiveMML;
     if (!AMML) {
@@ -1526,15 +1548,14 @@
         ),
         ITEM.RULE(),
         ITEM.SUBMENU(["Renderer","Math Renderer"],    {hidden:!CONFIG.showRenderer},
-          ITEM.RADIO("HTML-CSS",   "renderer", {action: MENU.Renderer}),
-          ITEM.RADIO("Common HTML","renderer", {action: MENU.Renderer, value:"CommonHTML"}),
-          ITEM.RADIO("Fast HTML",  "renderer", {action: MENU.Renderer, value:"PreviewHTML"}),
-          ITEM.RADIO("MathML",     "renderer", {action: MENU.Renderer, value:"NativeMML"}),
-          ITEM.RADIO("SVG",        "renderer", {action: MENU.Renderer}),
-          ITEM.RADIO("PlainSource","renderer", {action: MENU.Renderer, value:"PlainSource"}),
+          ITEM.RADIO(["HTML-CSS","HTML-CSS"],       "renderer", {action: MENU.Renderer}),
+          ITEM.RADIO(["CommonHTML","Common HTML"],  "renderer", {action: MENU.Renderer, value:"CommonHTML"}),
+          ITEM.RADIO(["PreviewHTML","Preview HTML"],"renderer", {action: MENU.Renderer, value:"PreviewHTML"}),
+          ITEM.RADIO(["MathML","MathML"],           "renderer", {action: MENU.Renderer, value:"NativeMML"}),
+          ITEM.RADIO(["SVG","SVG"],                 "renderer", {action: MENU.Renderer}),
+          ITEM.RADIO(["PlainSource","Plain Source"],"renderer", {action: MENU.Renderer, value:"PlainSource"}),
           ITEM.RULE(),
-          ITEM.CHECKBOX("Fast Preview", "FastPreview"),
-          ITEM.CHECKBOX("Assistive MathML", "assistiveMML", {action:MENU.AssistiveMML})
+          ITEM.CHECKBOX(["FastPreview","Fast Preview"], "FastPreview")
         ),
         ITEM.SUBMENU("MathPlayer",  {hidden:!HUB.Browser.isMSIE || !CONFIG.showMathPlayer,
                                                     disabled:!HUB.Browser.hasMathPlayer},
@@ -1561,12 +1582,16 @@
           ITEM.RADIO(["NeoEulerWeb","Neo Euler (web)"], "font", {action: MENU.Font})
         ),
         ITEM.SUBMENU(["ContextMenu","Contextual Menu"],    {hidden:!CONFIG.showContext},
-          ITEM.RADIO("MathJax", "context"),
+          ITEM.RADIO(["MathJax","MathJax"], "context"),
           ITEM.RADIO(["Browser","Browser"], "context")
         ),
         ITEM.COMMAND(["Scale","Scale All Math ..."],MENU.Scale),
         ITEM.RULE().With({hidden:!CONFIG.showDiscoverable, name:["","discover_rule"]}),
         ITEM.CHECKBOX(["Discoverable","Highlight on Hover"], "discoverable", {hidden:!CONFIG.showDiscoverable})
+      ),
+      ITEM.SUBMENU(["Accessibility","Accessibility"],
+        ITEM.CHECKBOX(["AssistiveMML","Assistive MathML"], "assistiveMML", {action:MENU.AssistiveMML}),
+        ITEM.CHECKBOX(["InTabOrder","Include in Tab Order"], "inTabOrder")
       ),
       ITEM.SUBMENU(["Locale","Language"],                  {hidden:!CONFIG.showLocale, ltr:true},
         ITEM.RADIO("en", "locale",  {action: MENU.Locale}),
